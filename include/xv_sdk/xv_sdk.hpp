@@ -41,7 +41,7 @@
 #define NOT_USE_FE
 //#define USE_SLAM_PATH
 #define USE_SLAM_POSE
-//#define USE_MAPPING_ON_HOST
+#define USE_MAPPING_ON_HOST
 
 #ifdef USE_SLAM_POSE
     #define ENABLE_POSE_WITH_CONFIDENCE
