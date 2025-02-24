@@ -154,6 +154,21 @@ geometry_msgs::PoseStamped toRosPoseStamped(const Pose& xvPose, const std::strin
     return ps;
 }
 
+void xvPose2PoseStamped(const Pose& xvPose, const std::string& frame_id,geometry_msgs::PoseStamped& this_ps)
+{
+    this_ps.header.frame_id = frame_id;
+    this_ps.header.stamp.fromSec(xvPose.hostTimestamp() > 0.1 ? xvPose.hostTimestamp() : 0.1);
+    this_ps.pose.position.x = xvPose.x();
+    this_ps.pose.position.y = xvPose.y();
+    this_ps.pose.position.z = xvPose.z();
+
+    const auto quat = xvPose.quaternion(); /// [qx,qy,qz,qw]
+    this_ps.pose.orientation.x = quat[0];
+    this_ps.pose.orientation.y = quat[1];
+    this_ps.pose.orientation.z = quat[2];
+    this_ps.pose.orientation.w = quat[3];
+}
+
 nav_msgs::Path toRosPoseStampedRetNavmsgs(const Pose& xvPose, const std::string& frame_id,nav_msgs::Path& ps)
 {
   if (xvPose.hostTimestamp() < 0)
@@ -182,6 +197,14 @@ nav_msgs::Path toRosPoseStampedRetNavmsgs(const Pose& xvPose, const std::string&
   ps.poses.push_back(this_ps);
 
   return ps;
+}
+
+void toRosPoseStampedRetNavmsgs(const std::deque<geometry_msgs::PoseStamped>& poseDeque, nav_msgs::Path& ps)
+{
+    for(auto item = poseDeque.begin() ; item < poseDeque.end(); item++)
+    {
+        ps.poses.push_back(*item);
+    }
 }
 
 geometry_msgs::TransformStamped toRosTransformStamped(const Pose& pose, const std::string& parent_frame_id, const std::string& frame_id)
@@ -259,9 +282,10 @@ sensor_msgs::Image toRosImage(const GrayScaleImage& xvGrayImage, double timestam
   rosImage.step = xvGrayImage.width * sizeof(uint8_t); /// bytes for 1 line
   /// TODO How to avoid copy ?
   const int nbPx = xvGrayImage.width * xvGrayImage.height;
-  std::vector<uint8_t> copy(nbPx);
-  std::memcpy(&copy[0], xvGrayImage.data.get(), nbPx * sizeof(uint8_t));
-  rosImage.data = std::move(copy);
+  // std::vector<uint8_t> copy(nbPx);
+  // std::memcpy(&copy[0], xvGrayImage.data.get(), nbPx * sizeof(uint8_t));
+  // rosImage.data = std::move(copy);
+  rosImage.data = std::vector<uint8_t>(xvGrayImage.data.get(), xvGrayImage.data.get() + nbPx * sizeof(uint8_t));
 
   return rosImage;
 }
@@ -321,15 +345,16 @@ sensor_msgs::Image toRosImage(const ColorImage& xvColorImage, const std::string&
   const int nbPx = xvColorImage.width * xvColorImage.height;
   std::vector<uint8_t> copy(3*nbPx);
   cv::Mat cvMat = toCvMatRGB(xvColorImage);
-  std::memcpy(&copy[0], cvMat.data, nbPx * 3*sizeof(uint8_t));
-  /// TODO use that instead when implemented
-  //std::memcpy(&copy[0], xvColorImage.toRgb().data.get(), nbPx * 3*sizeof(uint8_t));
-  rosImage.data = std::move(copy);
+  // std::memcpy(&copy[0], cvMat.data, nbPx * 3*sizeof(uint8_t));
+  // /// TODO use that instead when implemented
+  // //std::memcpy(&copy[0], xvColorImage.toRgb().data.get(), nbPx * 3*sizeof(uint8_t));
+  // rosImage.data = std::move(copy);
+  rosImage.data = std::vector<uint8_t>(cvMat.data, cvMat.data + nbPx * 3*sizeof(uint8_t));
 
   return rosImage;
 }
 
-sensor_msgs::Image toRosImage(const DepthImage& xvDepthImage, const std::string& frame_id)
+void toRosImage(const DepthImage& xvDepthImage, const std::string& frame_id, sensor_msgs::Image& rosImage)
 {
   if (xvDepthImage.hostTimestamp < 0)
     std::cerr << "XVSDK-ROS-WRAPPER toRosImage() Error: negative DepthImage host-timestamp" << std::endl;
@@ -339,7 +364,6 @@ sensor_msgs::Image toRosImage(const DepthImage& xvDepthImage, const std::string&
   /// Detections that are too close to the sensor to quantify shall be represented by -Inf.
   /// Erroneous detections shall be represented by quiet (non-signaling) NaNs. Finally, out of range
   /// detections will be represented by +Inf.
-  sensor_msgs::Image rosImage;
   rosImage.header.stamp.fromSec(xvDepthImage.hostTimestamp > 0.1 ? xvDepthImage.hostTimestamp : 0.1);
   rosImage.header.frame_id = frame_id;
   rosImage.height = xvDepthImage.height;
@@ -351,14 +375,16 @@ sensor_msgs::Image toRosImage(const DepthImage& xvDepthImage, const std::string&
   const int nbPx = xvDepthImage.width * xvDepthImage.height;
   std::vector<uint8_t> copy(nbPx*sizeof(float)/sizeof(uint8_t));
   if (xvDepthImage.type == xv::DepthImage::Type::Depth_32) {
-      std::memcpy(&copy[0], xvDepthImage.data.get(), nbPx * sizeof(float));
+    // std::memcpy(&copy[0], xvDepthImage.data.get(), nbPx * sizeof(float));
+    copy = std::vector<uint8_t>(xvDepthImage.data.get(), xvDepthImage.data.get() + nbPx*sizeof(float));
   } else if (xvDepthImage.type == xv::DepthImage::Type::Depth_16) {
-      static float cov = 7.5 / 2494.0; // XXX *0.001
+      // static float cov = 7.5 / 2494.0; // XXX *0.001
       const short* d = reinterpret_cast<const short*>(xvDepthImage.data.get());
       float* fl = reinterpret_cast<float*>(&copy[0]);
       for (int i = 0; i < nbPx; i++) {
-          fl[i] = cov * d[i];
+          fl[i] = (float)d[i] * 0.001;
       }
+      // rosImage.data = std::vector<uint8_t>(fl, fl + nbPx*sizeof(float));
   }
   rosImage.data = std::move(copy);
 
@@ -371,8 +397,6 @@ sensor_msgs::Image toRosImage(const DepthImage& xvDepthImage, const std::string&
     else if (*depth > 10.f)
       *depth = std::numeric_limits<float>::infinity();
   }
-
-  return rosImage;
 }
 
 static std::vector<std::vector<unsigned char>> colors = {{0,0,0},
@@ -463,10 +487,11 @@ sensor_msgs::Image toRosImage(const DepthColorImage& xvDepthColorImage, const st
   const int nbPx = rosImage.width * rosImage.height;
   std::vector<uint8_t> copy(3*nbPx);
   cv::Mat cvMat = toCvMatRGB(xvDepthColorImage);
-  std::memcpy(&copy[0], cvMat.data, nbPx * 3*sizeof(uint8_t));
-  /// TODO use that instead when implemented
-  //std::memcpy(&copy[0], xvColorImage.toRgb().data.get(), nbPx * 3*sizeof(uint8_t));
-  rosImage.data = std::move(copy);
+  // std::memcpy(&copy[0], cvMat.data, nbPx * 3*sizeof(uint8_t));
+  // /// TODO use that instead when implemented
+  // //std::memcpy(&copy[0], xvColorImage.toRgb().data.get(), nbPx * 3*sizeof(uint8_t));
+  // rosImage.data = std::move(copy);
+  rosImage.data = std::vector<uint8_t>(cvMat.data, cvMat.data + nbPx * 3*sizeof(uint8_t));
 
   return rosImage;
 }
@@ -868,9 +893,10 @@ sensor_msgs::Image toRosImage(cv::Mat cvColorImage, double timestamp, const std:
   rosImage.step = cvColorImage.cols * 3*sizeof(uint8_t); /// bytes for 1 line
   /// TODO How to avoid copy ?
   const int nbPx = cvColorImage.cols * cvColorImage.rows;
-  std::vector<uint8_t> copy(3*nbPx);
-  std::memcpy(&copy[0], cvColorImage.data, nbPx * 3*sizeof(uint8_t));
-  rosImage.data = std::move(copy);
+  // std::vector<uint8_t> copy(3*nbPx);
+  // std::memcpy(&copy[0], cvColorImage.data, nbPx * 3*sizeof(uint8_t));
+  // rosImage.data = std::move(copy);
+  rosImage.data = std::vector<uint8_t>(cvColorImage.data, cvColorImage.data + nbPx * 3*sizeof(uint8_t));
 
   return rosImage;
 }
@@ -1002,11 +1028,49 @@ sensor_msgs::Image toRosImage(const SgbmImage& xvSgbmDepthImage, const std::stri
     std::vector<uint8_t> copy(3*nbPx);
     std::shared_ptr<const xv::SgbmImage> ptr_sgbm = std::make_shared<xv::SgbmImage>(xvSgbmDepthImage);
     cv::Mat cvMat = convDepthToMat(std::shared_ptr<const xv::SgbmImage>(ptr_sgbm),true);
-    std::memcpy(&copy[0], cvMat.data, nbPx * 3*sizeof(uint8_t));
-    rosImage.data = std::move(copy);
+    // std::memcpy(&copy[0], cvMat.data, nbPx * 3*sizeof(uint8_t));
+    // rosImage.data = std::move(copy);
+    rosImage.data = std::vector<uint8_t>(cvMat.data, cvMat.data + nbPx * 3*sizeof(uint8_t));
   }
 
   return rosImage;
+}
+
+sensor_msgs::Image sgbmRawDepthtoRosImage(const SgbmImage& xvSgbmDepthImage, const std::string& frame_id)
+{
+    if (xvSgbmDepthImage.hostTimestamp < 0)
+        std::cerr << "XVSDK-ROS-WRAPPER toRosImage() Error: negative SgbmImage host-timestamp" << std::endl;
+
+    sensor_msgs::Image rosImage;
+
+    if(xv::SgbmImage::Type::Disparity == xvSgbmDepthImage.type)
+    {
+        std::cerr << "XVSDK-ROS-WRAPPER toRosImage()s Error: wrong sgbm type:Disparity"<< std::endl;
+    }
+    else
+    {
+        rosImage.header.stamp.fromSec(xvSgbmDepthImage.hostTimestamp > 0.1 ? xvSgbmDepthImage.hostTimestamp : 0.1);
+        rosImage.header.frame_id = frame_id;
+        
+        rosImage.height = xvSgbmDepthImage.height;
+        
+        rosImage.width = xvSgbmDepthImage.width;
+        
+        rosImage.encoding = sensor_msgs::image_encodings::TYPE_16UC1; /// FIXME why need BGR to get RGB ?
+        rosImage.is_bigendian = false;
+    
+        rosImage.step = rosImage.width * sizeof(uint16_t); /// bytes for 1 line
+    
+        const int nbPx = rosImage.width * rosImage.height;
+        
+        std::vector<uint8_t> copy(2*nbPx);
+        std::shared_ptr<const xv::SgbmImage> ptr_sgbm = std::make_shared<xv::SgbmImage>(xvSgbmDepthImage);
+        // std::memcpy(&copy[0], xvSgbmDepthImage.data.get(), nbPx * sizeof(uint16_t));
+        // rosImage.data = std::move(copy);
+        rosImage.data = std::vector<uint8_t>(xvSgbmDepthImage.data.get(), xvSgbmDepthImage.data.get() + nbPx * sizeof(uint16_t));
+    }
+
+    return rosImage;
 }
 
 sensor_msgs::PointCloud2 toRosPointCloud2(cv::Mat cvColorImage,
@@ -1364,6 +1428,8 @@ RosDevice::RosDevice(ros::NodeHandle* parent, const std::string& rosNamespace, s
   , m_nodeHandle_fisheye(m_nodeHandle, "fisheye_cameras")
   , m_nodeHandle_fisheyeLeft(m_nodeHandle_fisheye, "left")
   , m_nodeHandle_fisheyeRight(m_nodeHandle_fisheye, "right")
+  , m_nodeHandle_fisheyeDewarpLeft(m_nodeHandle_fisheye, "left_dewarp")
+  , m_nodeHandle_fisheyeDewarpRight(m_nodeHandle_fisheye, "right_dewarp")
   , m_ddynReconfig_fisheye(new ddynamic_reconfigure::DDynamicReconfigure(m_nodeHandle_fisheye))
   , m_nodeHandle_colorCamera(m_nodeHandle, "color_camera")
   , m_ddynReconfig_colorCamera(new ddynamic_reconfigure::DDynamicReconfigure(m_nodeHandle_colorCamera))
@@ -1371,6 +1437,7 @@ RosDevice::RosDevice(ros::NodeHandle* parent, const std::string& rosNamespace, s
   , m_ddynReconfig_sgbmCamera(new ddynamic_reconfigure::DDynamicReconfigure(m_nodeHandle_sgbmCamera))
   , m_nodeHandle_tofCamera(m_nodeHandle, "tof_camera")
   , m_ddynReconfig_tofCamera(new ddynamic_reconfigure::DDynamicReconfigure(m_nodeHandle_tofCamera))
+  
 {
     initPublisherAdvertise();
     init();
@@ -1394,6 +1461,7 @@ std::string timeShowStr(std::int64_t edgeTimestampUs, double hostTimestamp) {
     return std::string(s);
 }
 void showSgbmDepthImage(const RosDevice* device, const SgbmImage & xvSgbmImage);
+void showSgbmRawDepthImage(const RosDevice* device, const SgbmImage & xvSgbmImage);
 void showSgbmPointCloudImage(RosDevice* device, const SgbmImage & xvSgbmImage);
 void getRosPCFromSgbmFirmwarePC(
                       sensor_msgs::PointCloud2 &pc2,
@@ -1488,7 +1556,8 @@ void RosDevice::init()
     m_server_slam_stop = m_nodeHandle_slam.advertiseService("stop", &RosDevice::cbSlam_stop, this);
     m_server_slam_getPose = m_nodeHandle_slam.advertiseService("get_pose", &RosDevice::cbSlam_getPose, this);
     m_server_slam_getPoseAt = m_nodeHandle_slam.advertiseService("get_pose_at", &RosDevice::cbSlam_getPoseAt, this);
-
+    m_server_cslam_saveMap = m_nodeHandle_slam.advertiseService("save_map_cslam",&RosDevice::cbCslam_saveMap, this);
+    m_server_cslam_loadMap = m_nodeHandle_slam.advertiseService("load_map_cslam", &RosDevice::cbCslam_loadMap, this);
     /// TODO Cslam related services
     /// ...
     ros::Time current_time,last_time;
@@ -1497,22 +1566,38 @@ void RosDevice::init()
     path_msgs.header.frame_id = getFrameId("odom");
     m_xvDevice->slam()->registerCallback([this](const Pose& pose)
     {
-      if (pose.hostTimestamp() < 0)
-      {
-        std::cerr << "XVSDK-ROS-WRAPPER Warning: negative Pose host-timestamp" << std::endl;
-        return;
-      }
-    
     #ifdef ENABLE_SLAM_POSE_FACTOR_CONVERT
       Pose updatePose = m_xvDevice->slam()->poseScaleCalibration(pose);
     #else
       Pose updatePose = pose;
     #endif
+      
+      if (updatePose.hostTimestamp() < 0)
+      {
+        std::cerr << "XVSDK-ROS-WRAPPER Warning: negative Pose host-timestamp" << std::endl;
+        return;
+      }
 
     #ifdef USE_SLAM_PATH
+      static std::deque<geometry_msgs::PoseStamped> poseDeque;
+      while(poseDeque.size() > SLAM_PATH_MAX_LENGTH)
+      {
+          poseDeque.pop_front();
+      }
+      {
+        geometry_msgs::PoseStamped this_ps;
+        xvPose2PoseStamped(updatePose, getFrameId("odom"), this_ps);
+        poseDeque.push_back(this_ps);
+      }
       if(m_publisher_slam_path)
       {
-          m_publisher_slam_path.publish(toRosPoseStampedRetNavmsgs(updatePose, getFrameId("odom"),path_msgs));
+          nav_msgs::Path slamPath;
+          ros::Time current_time,last_time;
+          current_time = ros::Time::now();
+          slamPath.header.stamp = current_time;//.fromSec(xvPose.hostTimestamp() > 0.1 ? xvPose.hostTimestamp() : 0.1);
+          slamPath.header.frame_id = getFrameId("odom");
+          toRosPoseStampedRetNavmsgs(poseDeque, slamPath);
+          m_publisher_slam_path.publish(slamPath);
       }
       ros::spinOnce();
       s_tfBroadcaster->sendTransform(toRosTransformStamped(updatePose,
@@ -1613,9 +1698,13 @@ void RosDevice::init()
 
   
 #else
-    std::static_pointer_cast<xv::SlamEx>(m_xvDevice->slam())->setEnableOnlineLoopClosure(true);
+    std::static_pointer_cast<xv::SlamEx>(m_xvDevice->slam())->setEnableOnlineLoopClosure(false);
     if (m_param_slam_autoStart)
+    {
+#ifdef USE_SLAM_POSE
       m_xvDevice->slam()->start();
+#endif
+    }
 #endif  
     std::this_thread::sleep_for(std::chrono::milliseconds(3000));
   }
@@ -1741,6 +1830,14 @@ void RosDevice::init()
     m_imageTransport_fisheye_right = std::make_shared<ImgTpt>(m_nodeHandle_fisheyeRight);
     m_publisher_fisheyeCameras_rightImage = m_imageTransport_fisheye_right->advertiseCamera("image", 10);
 
+    m_camInfoMan_fisheye_dewarp_left = std::make_shared<CamInfoM>(m_nodeHandle_fisheyeDewarpLeft, m_rosNamespace+"_fisheye_cameras_dewarp_left");
+    m_imageTransport_fisheye_dewarp_left = std::make_shared<ImgTpt>(m_nodeHandle_fisheyeDewarpLeft);
+    m_publisher_fisheyeCameras_dewarp_leftImage = m_imageTransport_fisheye_dewarp_left->advertiseCamera("image", 10);
+
+    m_camInfoMan_fisheye_dewarp_right = std::make_shared<CamInfoM>(m_nodeHandle_fisheyeDewarpRight, m_rosNamespace+"_fisheye_cameras_dewarp_right");
+    m_imageTransport_fisheye_dewarp_right = std::make_shared<ImgTpt>(m_nodeHandle_fisheyeDewarpRight);
+    m_publisher_fisheyeCameras_dewarp_rightImage = m_imageTransport_fisheye_dewarp_right->advertiseCamera("image", 10);
+
     m_xvFisheyesCalibs = m_xvDevice->fisheyeCameras()->calibration();
     m_fisheyeCameraInfos.resize(m_xvFisheyesCalibs.size());
     for (int i = 0; i < int(m_xvFisheyesCalibs.size()); ++i)
@@ -1785,13 +1882,13 @@ void RosDevice::init()
           std::cerr << "XVSDK-ROS-WRAPPER Warning: no FisheyeImages data" << std::endl;
           return;
         }
-        if (xvFisheyeImages.hostTimestamp < 0)
-        {
-          std::cerr << "XVSDK-ROS-WRAPPER Warning: negative FisheyeImages host-timestamp" << std::endl;
-          return;
-        }
+        // if (xvFisheyeImages.hostTimestamp < 0)
+        // {
+        //   std::cerr << "XVSDK-ROS-WRAPPER Warning: negative FisheyeImages host-timestamp" << std::endl;
+        //   return;
+        // }
         
-        auto img = toRosImage(xvGrayImage, xvFisheyeImages.hostTimestamp, "");
+        auto img = toRosImage(xvGrayImage, xvFisheyeImages.edgeTimestampUs, "");
 
         if (i == 0)
         {
@@ -1821,6 +1918,59 @@ void RosDevice::init()
           camInfo.header.frame_id = img.header.frame_id;
           camInfo.header.stamp = img.header.stamp;
           m_publisher_fisheyeCameras_rightImage.publish(img, camInfo);
+        }
+      }
+    });
+
+    m_xvDevice->fisheyeCameras()->registerAntiDistortionCallback([this](const FisheyeImages & xvFisheyeDewarpImages)
+    {
+      for (int i = 0; i < int(xvFisheyeDewarpImages.images.size()); ++i)
+      {
+        const auto& xvGrayImage = xvFisheyeDewarpImages.images[i];
+        
+        if (!xvGrayImage.data)
+        {
+          std::cerr << "XVSDK-ROS-WRAPPER Warning: no FisheyeImages data" << std::endl;
+          return;
+        }
+        if (xvFisheyeDewarpImages.hostTimestamp < 0)
+        {
+          std::cerr << "XVSDK-ROS-WRAPPER Warning: negative FisheyeImages host-timestamp" << std::endl;
+          return;
+        }
+        
+        auto img = toRosImage(xvGrayImage, xvFisheyeDewarpImages.hostTimestamp, "");
+
+        if (i == 0)
+        {
+          sensor_msgs::CameraInfo camInfo;
+          // img.header.frame_id = getFrameId("fisheye_left_dewarp_optical_frame");
+
+          // sensor_msgs::CameraInfo camInfo = m_camInfoMan_fisheye_left->getCameraInfo();
+          // if (camInfo.height != img.height)
+          // {
+          //   m_camInfoMan_fisheye_left->setCameraInfo(m_fisheyeCameraInfos[i][img.height]);
+          //   camInfo = m_fisheyeCameraInfos[i][img.height];
+          // }
+          // camInfo.header.frame_id = img.header.frame_id;
+          // camInfo.header.stamp = img.header.stamp;
+          m_publisher_fisheyeCameras_dewarp_leftImage.publish(img, camInfo);
+        }
+
+        if (i == 1)
+        {
+          sensor_msgs::CameraInfo camInfo;
+          // img.header.frame_id = getFrameId("fisheye_right_dewarp_optical_frame");
+
+          // sensor_msgs::CameraInfo camInfo = m_camInfoMan_fisheye_right->getCameraInfo();
+          // if (camInfo.height != img.height)
+          // {
+          //   m_camInfoMan_fisheye_right->setCameraInfo(m_fisheyeCameraInfos[i][img.height]);
+          //   camInfo = m_fisheyeCameraInfos[i][img.height];
+          // }
+          // camInfo.header.frame_id = img.header.frame_id;
+          // camInfo.header.stamp = img.header.stamp;
+          m_publisher_fisheyeCameras_dewarp_rightImage.publish(img, camInfo);
         }
       }
     });
@@ -1949,11 +2099,11 @@ void RosDevice::init()
     m_camInfoMan_sgbmCamera = std::make_shared<CamInfoM>(m_nodeHandle_sgbmCamera, m_rosNamespace+"_sgbm_camera");
     m_imageTransport_sgbmCamera = std::make_shared<ImgTpt>(m_nodeHandle_sgbmCamera);
     m_publisher_sgbmCamera_image = m_imageTransport_sgbmCamera->advertiseCamera("image_sgbm", 10);
-
+    m_publisher_sgbmCamera__depth_image = m_imageTransport_sgbmCamera->advertiseCamera("image_sgbm_depth", 10);
     if (!m_xvDevice->fisheyeCameras()->calibration().empty())
     {
         m_xvSgbmCalib = m_xvDevice->fisheyeCameras()->calibration()[0]; //temp
-  }
+    }
 
  
     sensor_msgs::CameraInfo camInfo = toRosCameraInfo(m_xvSgbmCalib.ucm.empty()?nullptr:&m_xvSgbmCalib.ucm[0],
@@ -1972,6 +2122,7 @@ void RosDevice::init()
       {
         #ifdef USE_SGBM_IMAGE
           showSgbmDepthImage(this, xvSgbmImage);
+          showSgbmRawDepthImage(this, xvSgbmImage);
         #endif
         #if (defined USE_SGBM_POINTCLOUD) && (!defined SGBM_FIRMWARE_CLOUD)
           showSgbmPointCloudImage(this, xvSgbmImage);
@@ -2096,7 +2247,8 @@ void RosDevice::init()
         return;
       }
 
-      auto img = toRosImage(xvDepthImage, getFrameId("tof_optical_frame"));
+      sensor_msgs::Image img;
+      toRosImage(xvDepthImage, getFrameId("tof_optical_frame"), img);
 
       sensor_msgs::CameraInfo camInfo = m_camInfoMan_tofCamera->getCameraInfo();
       camInfo.header.frame_id = img.header.frame_id;
@@ -2293,6 +2445,71 @@ bool RosDevice::cbSlam_getPoseAt(xv_sdk::GetPoseAt::Request& req, xv_sdk::GetPos
   }
 
   return ok;
+}
+
+bool RosDevice::cbCslam_saveMap(xv_sdk::SaveMapAndSwitchCslam::Request &req, xv_sdk::SaveMapAndSwitchCslam::Response &res)
+{
+    std::cout << "Save cslam map and switch to cslam" << std::endl;
+    m_slam_map_outStream.open(req.filename, std::ios::binary | std::ios::out | std::ios::trunc);
+    if(!m_slam_map_outStream.is_open())
+    {
+        std::cout<< "error number:"<< errno<<std::endl;
+        std::cout << "open " << req.filename << " failed." << std::endl;
+    }
+    auto cslamSwitchedCallback = [this](int status_of_saved_map, int map_quality)
+    {
+        std::cout<< "map_quality:"<< map_quality<<std::endl;
+        switch (status_of_saved_map)
+        {
+        case  2: std::cout << " Map well saved. " << std::endl; break;
+        case -1: std::cout << " Map cannot be saved, an error occured when trying to save it." << std::endl; break;
+        default: std::cout << " Unrecognized status of saved map " << std::endl; break;
+        }
+        this->m_slam_map_outStream.close();
+    };
+    auto cslamLocalizedCallback = [this](float percent)
+    {
+
+    };
+    bool ok = m_xvDevice->slam()->saveMapAndSwitchToCslam(
+        *m_slam_map_outStream.rdbuf(),
+        cslamSwitchedCallback,
+        cslamLocalizedCallback
+    );
+    if(!ok)
+    {
+        m_slam_map_outStream.close();
+    }
+    res.success = ok;
+    res.message = ok ? "successed" : "failed";
+    return true;
+}
+
+bool RosDevice::cbCslam_loadMap(xv_sdk::LoadMapAndSwithcCslam::Request &req, xv_sdk::LoadMapAndSwithcCslam::Response &res)
+{
+    std::cout << "load cslam map and switch to cslam" << std::endl;
+    if (mapStream.open(req.filename, std::ios::binary | std::ios::in) == nullptr) {
+        std::cout << "open " << req.filename << " failed." << std::endl;
+    }
+    auto cslamSwitchedCallback = [this](int map_quality)
+    {
+        this->mapStream.close();
+    };
+    auto cslamLocalizedCallback = [this](float percent)
+    {
+        
+    };
+
+    bool ok = m_xvDevice->slam()->loadMapAndSwitchToCslam(mapStream,
+        cslamSwitchedCallback,
+        cslamLocalizedCallback);
+      if(!ok)
+      {
+        mapStream.close();
+      }
+    res.success = ok;
+    res.message = ok ? "successed" : "failed";
+    return true;
 }
 
 bool RosDevice::cbImuSensor_startOri(std_srvs::Trigger::Request& /*req*/, std_srvs::Trigger::Response& res)
@@ -2518,6 +2735,7 @@ void RosWrapper::publishNewDevice(const std::string &rosNamespace)
   msg.data = rosNamespace;
   m_publisher_newDevice.publish(msg);
 }
+
 void showSgbmDepthImage(const RosDevice* device, const SgbmImage & xvSgbmImage)
 {
     if(xvSgbmImage.type == xvSgbmImage.Type::Depth)
@@ -2549,6 +2767,33 @@ void showSgbmDepthImage(const RosDevice* device, const SgbmImage & xvSgbmImage)
         camInfo.header.stamp = img.header.stamp;
 
         device->m_publisher_sgbmCamera_image.publish(img, camInfo);
+    }
+}
+
+void showSgbmRawDepthImage(const RosDevice* device, const SgbmImage & xvSgbmImage)
+{
+    if(xvSgbmImage.type == xvSgbmImage.Type::Depth)
+    {
+        if (!xvSgbmImage.data)
+        {
+          std::cerr << "XVSDK-ROS-WRAPPER Warning: no SgbmImage data" << std::endl;
+          return;
+        }
+
+        if (xvSgbmImage.hostTimestamp < 0)
+        {
+          std::cerr << "XVSDK-ROS-WRAPPER Warning: negative SgbmImage host-timestamp" << std::endl;
+          return;
+        }
+      
+        auto img = sgbmRawDepthtoRosImage(xvSgbmImage, device->getFrameId("sgbm_optical_frame"));
+
+        sensor_msgs::CameraInfo camInfo = device->m_camInfoMan_sgbmCamera->getCameraInfo();
+
+        camInfo.header.frame_id = img.header.frame_id;
+        camInfo.header.stamp = img.header.stamp;
+
+        device->m_publisher_sgbmCamera__depth_image.publish(img, camInfo);
     }
 }
 
@@ -2937,13 +3182,12 @@ void getLessRosPCFromSgbmFirmwarePC(
     short *dataTemp = (short *)sgbmImage.data.get();
     Vector3d p3d_in_sgbm;
 
-    int index = 0;
     for(unsigned int i = 0; i < sgbmImage.height ; i = i + 2)
     {
         for(unsigned int j = 0; j < sgbmImage.width; j = j + 2, data++)
         {
             #ifdef SGBM_POINTCLOUD_UNIT_M
-            index = (i * sgbmImage.width + j) * 3;
+            int index = (i * sgbmImage.width + j) * 3;
             p3d_in_sgbm = { (double(*(dataTemp + index)/1000.0)), 
                             double((*(dataTemp + index + 1))/1000.0), 
                             double((*(dataTemp + index + 2))/1000.0)};

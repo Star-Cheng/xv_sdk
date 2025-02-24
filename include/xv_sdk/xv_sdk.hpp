@@ -6,8 +6,10 @@
 #include <vector>
 #include <thread>
 #include <mutex>
-
+#include <iostream>
+#include <fstream>
 #include <xv-sdk.h>
+#include <deque>
 
 // ROS
 
@@ -34,12 +36,14 @@
 #include <xv_sdk/GetOrientation.h>
 #include <xv_sdk/GetOrientationAt.h>
 #include <xv_sdk/GetDevices.h>
+#include <xv_sdk/LoadMapAndSwithcCslam.h>
+#include <xv_sdk/SaveMapAndSwitchCslam.h>
 
 // #define NOT_USE_RGB
 // #define NOT_USE_TOF
 //#define NOT_USE_SGBM
 #define NOT_USE_FE
-//#define USE_SLAM_PATH
+#define USE_SLAM_PATH
 #define USE_SLAM_POSE
 #define USE_MAPPING_ON_HOST
 
@@ -71,6 +75,7 @@
   #endif/*#ifndef USE_SGBM_POINTCLOUD*/
 #endif/*#ifndef NOT_USE_SGBM*/
 
+#define SLAM_PATH_MAX_LENGTH 5000
 namespace xv {
 
 struct FpsCount
@@ -113,6 +118,8 @@ private:
   std::shared_ptr<Device> m_xvDevice;
   std::shared_ptr<ddynamic_reconfigure::DDynamicReconfigure> m_ddynReconfig;
   std::string m_param_tfPrefix;
+  std::ofstream m_slam_map_outStream;
+  std::filebuf mapStream;
 
   /**
    * SLAM
@@ -125,6 +132,8 @@ private:
   ros::ServiceServer m_server_slam_stop;
   ros::ServiceServer m_server_slam_getPose;
   ros::ServiceServer m_server_slam_getPoseAt;
+  ros::ServiceServer m_server_cslam_saveMap;
+  ros::ServiceServer m_server_cslam_loadMap;
   ros::Publisher m_publisher_slam_pose;
   ros::Publisher m_publisher_slam_visualPose;
   //ros::Publisher m_publisher_slam_lost;
@@ -172,6 +181,8 @@ private:
   ros::NodeHandle m_nodeHandle_fisheye;
   ros::NodeHandle m_nodeHandle_fisheyeLeft;
   ros::NodeHandle m_nodeHandle_fisheyeRight;
+  ros::NodeHandle m_nodeHandle_fisheyeDewarpLeft;
+  ros::NodeHandle m_nodeHandle_fisheyeDewarpRight;
   std::shared_ptr<ddynamic_reconfigure::DDynamicReconfigure> m_ddynReconfig_fisheye;
   bool m_param_fisheye_autoExposure = true;
   //ros::Publisher m_publisher_fisheyeCameras_images;
@@ -183,6 +194,14 @@ private:
   std::shared_ptr<camera_info_manager::CameraInfoManager> m_camInfoMan_fisheye_right;
   std::shared_ptr<image_transport::ImageTransport> m_imageTransport_fisheye_right;
   image_transport::CameraPublisher m_publisher_fisheyeCameras_rightImage;
+
+  std::shared_ptr<camera_info_manager::CameraInfoManager> m_camInfoMan_fisheye_dewarp_left;
+  std::shared_ptr<image_transport::ImageTransport> m_imageTransport_fisheye_dewarp_left;
+  image_transport::CameraPublisher m_publisher_fisheyeCameras_dewarp_leftImage;
+  std::shared_ptr<camera_info_manager::CameraInfoManager> m_camInfoMan_fisheye_dewarp_right;
+  std::shared_ptr<image_transport::ImageTransport> m_imageTransport_fisheye_dewarp_right;
+  image_transport::CameraPublisher m_publisher_fisheyeCameras_dewarp_rightImage;
+  
   std::vector<std::map<int /*height*/, sensor_msgs::CameraInfo>> m_fisheyeCameraInfos;
   std::vector<Calibration> m_xvFisheyesCalibs;
 
@@ -211,6 +230,7 @@ private:
   std::shared_ptr<camera_info_manager::CameraInfoManager> m_camInfoMan_sgbmCamera;
   std::shared_ptr<image_transport::ImageTransport> m_imageTransport_sgbmCamera;
   image_transport::CameraPublisher m_publisher_sgbmCamera_image;
+  image_transport::CameraPublisher m_publisher_sgbmCamera__depth_image;
   std::map<int, sensor_msgs::CameraInfo> m_sgbmCameraInfos;
   Calibration m_xvSgbmCalib;
 
@@ -273,6 +293,9 @@ private:
 
   bool cbSlam_getPose(xv_sdk::GetPose::Request &req, xv_sdk::GetPose::Response &res);
   bool cbSlam_getPoseAt(xv_sdk::GetPoseAt::Request &req, xv_sdk::GetPoseAt::Response &res);
+  
+  bool cbCslam_saveMap(xv_sdk::SaveMapAndSwitchCslam::Request &req, xv_sdk::SaveMapAndSwitchCslam::Response &res);
+  bool cbCslam_loadMap(xv_sdk::LoadMapAndSwithcCslam::Request &req, xv_sdk::LoadMapAndSwithcCslam::Response &res);
 
   bool cbImuSensor_startOri(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res);
   bool cbImuSensor_stopOri(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res);
@@ -294,6 +317,7 @@ private:
 
   friend void showSgbmDepthImage(const RosDevice* device, const SgbmImage & xvSgbmImage);
   friend void showSgbmPointCloudImage(RosDevice* device, const SgbmImage & xvSgbmImage);
+  friend void showSgbmRawDepthImage(const RosDevice* device, const SgbmImage & xvSgbmImage);
 };
 
 class RosWrapper

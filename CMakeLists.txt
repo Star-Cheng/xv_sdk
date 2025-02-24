@@ -50,6 +50,8 @@ add_service_files(FILES
   GetOrientation.srv
   GetOrientationAt.srv
   GetDevices.srv
+  LoadMapAndSwithcCslam.srv
+  SaveMapAndSwitchCslam.srv
 )
 
 # Actually generate the language-specific message and service files
@@ -66,8 +68,8 @@ catkin_package(
     include
     ## This is only necessary because Eigen3 sets a non-standard EIGEN3_INCLUDE_DIR variable
     ${EIGEN3_INCLUDE_DIR}
-  LIBRARIES
-    ${PROJECT_NAME}_core
+#   LIBRARIES
+#     ${PROJECT_NAME}_core
   CATKIN_DEPENDS
     roscpp
     message_runtime
