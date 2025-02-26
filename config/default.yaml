@@ -7,4 +7,4 @@ xv_dev:
   slam:
     auto_start: true
   edge:
-    auto_start: false
+    auto_start: true
