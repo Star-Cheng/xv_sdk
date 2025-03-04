@@ -28,6 +28,7 @@ find_package(catkin REQUIRED
 find_package(Eigen3 REQUIRED)
 find_package(Boost REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(PCL REQUIRED)
 
 ###################################
 ## catkin specific configuration ##
@@ -121,7 +122,11 @@ include_directories(
 )
 
 ## Declare cpp executables
-add_executable(${PROJECT_NAME} src/${PROJECT_NAME}_wrapper.cpp src/${PROJECT_NAME}_node.cpp)
+add_executable(${PROJECT_NAME} 
+src/${PROJECT_NAME}_wrapper.cpp 
+src/${PROJECT_NAME}_node.cpp 
+# src/${PROJECT_NAME}_test.cpp
+)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_11)
 
 ## Add dependencies to exported targets, like ROS msgs or srvs
@@ -131,7 +136,7 @@ add_dependencies(${PROJECT_NAME}
 )
 
 ## Specify libraries to link executable targets against
-target_link_libraries(${PROJECT_NAME} ${XVSDK_LIBRARIES} ${catkin_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(${PROJECT_NAME} ${XVSDK_LIBRARIES} ${catkin_LIBRARIES} ${OpenCV_LIBS} ${PCL_LIBRARIES})
 
 #############
 ## Install ##

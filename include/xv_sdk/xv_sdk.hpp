@@ -40,7 +40,7 @@
 #include <xv_sdk/SaveMapAndSwitchCslam.h>
 
 // #define NOT_USE_RGB
-#define NOT_USE_TOF
+// #define NOT_USE_TOF
 // #define NOT_USE_SGBM
 #define NOT_USE_FE
 // #define USE_SLAM_PATH
