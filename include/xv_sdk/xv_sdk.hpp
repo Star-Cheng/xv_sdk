@@ -43,7 +43,7 @@
 // #define NOT_USE_TOF
 // #define NOT_USE_SGBM
 #define NOT_USE_FE
-// #define USE_SLAM_PATH
+#define USE_SLAM_PATH
 #define USE_SLAM_POSE
 // #define USE_MAPPING_ON_HOST
 
